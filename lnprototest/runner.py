@@ -9,6 +9,12 @@ import functools
 from typing import Dict, Optional, List, Union, Any, Callable
 
 
+def message(str):
+    with open('/tmp/dcl.txt', 'a') as file:
+        file.write(str)
+        if not str.endswith('\n'):
+            file.write('\n')
+
 class Conn(object):
     """Class for connections.  Details filled in by the particular runner."""
     def __init__(self, connprivkey: str):
@@ -52,12 +58,14 @@ require that minimum_depth be 3, just for test simplicity.
         return None
 
     def add_conn(self, conn: Conn) -> None:
+        message("Runner::add_conn " + str(conn))
         self.conns[conn.name] = conn
         self.last_conn = conn
 
     def disconnect(self, event: Event, conn: Conn) -> None:
         if conn is None:
             raise SpecFileError(event, "Unknown conn")
+        message("Runner::disconnect " + str(conn))
         del self.conns[conn.name]
         self.check_final_error(event, conn, conn.expected_error, conn.must_not_events)
 
@@ -71,12 +79,14 @@ require that minimum_depth be 3, just for test simplicity.
             self.disconnect(sequence, next(iter(self.conns.values())))
 
     def restart(self) -> None:
+        message("Runner::restart")
         self.conns = {}
         self.last_conn = None
         self.stash = {}
 
     # FIXME: Why can't we use SequenceUnion here?
     def run(self, events: Union[Sequence, List[Event], Event]) -> None:
+        message("Runner::run")
         sequence = Sequence(events)
         self.start()
         while True:

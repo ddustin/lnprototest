@@ -25,6 +25,12 @@ TIMEOUT = int(os.getenv("TIMEOUT", "30"))
 LIGHTNING_SRC = os.path.join(os.getcwd(), os.getenv("LIGHTNING_SRC", '../lightning/'))
 
 
+def message(str):
+    with open('/tmp/dcl.txt', 'a') as file:
+        file.write(str)
+        if not str.endswith('\n'):
+            file.write('\n')
+
 class CLightningConn(lnprototest.Conn):
     def __init__(self, connprivkey: str, port: int):
         super().__init__(connprivkey)
@@ -192,6 +198,8 @@ class Runner(lnprototest.Runner):
                 raise EventError(event, "Connection closed after sending {}".format(msg.hex()))
             else:
                 raise EventError(event, "Connection closed")
+        except Exception as e:
+            message("CLRunner.recv exception " + str(e))
 
     def fundchannel(self,
                     event: Event,

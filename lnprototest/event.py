@@ -26,6 +26,17 @@ ResolvableBool = Union[int, Callable[['Runner', 'Event', str], bool]]
 Resolvable = Union[Any, Callable[['Runner', 'Event', str], Any]]
 
 
+def message(str):
+    with open('/tmp/dcl.txt', 'a') as file:
+        file.write(str)
+        if not str.endswith('\n'):
+            file.write('\n')
+
+
+def message_by_another_name(str):
+    message(str)
+
+
 class Event(object):
     """Abstract base class for events."""
     def __init__(self) -> None:
@@ -95,10 +106,12 @@ class Connect(Event):
 
     def action(self, runner: 'Runner') -> bool:
         super().action(runner)
+        message("Connect::action begin")
         if runner.find_conn(self.connprivkey):
             raise SpecFileError(self, "Already have connection to {}"
                                 .format(self.connprivkey))
         runner.connect(self, self.connprivkey)
+        message("Connect::action end")
         return True
 
 
@@ -119,8 +132,10 @@ class MustNotMsg(PerConnEvent):
         return name == self.must_not
 
     def action(self, runner: 'Runner') -> bool:
+        message("MustNotMsg::action begin")
         super().action(runner)
         self.find_conn(runner).must_not_events.append(self)
+        message("MustNotMsg::action end")
         return True
 
 
@@ -130,8 +145,23 @@ class Disconnect(PerConnEvent):
         super().__init__(connprivkey)
 
     def action(self, runner: 'Runner') -> bool:
+        message("Disconnet::action begin")
         super().action(runner)
         runner.disconnect(self, self.find_conn(runner))
+        message("Disconnect::action end")
+        return True
+
+
+class LogMsg(PerConnEvent):
+    """Feed a message to the runner (via optional given connection)"""
+    def __init__(self, logmessage: str, connprivkey: Optional[str] = None,
+                 **kwargs: Union[ResolvableStr, ResolvableInt]):
+        super().__init__(connprivkey)
+        self.logmessage = logmessage
+
+    def action(self, runner: 'Runner') -> bool:
+        super().action(runner)
+        message("LogMsg " + str(self.logmessage))
         return True
 
 
@@ -153,10 +183,12 @@ class Msg(PerConnEvent):
         missing = message.missing_fields()
         if missing:
             raise SpecFileError(self, "Missing fields {}".format(missing))
+        message_by_another_name("Msg::action sending message:\n" + str(message.to_py()))
         binmsg = io.BytesIO()
         message.write(binmsg)
         runner.recv(self, self.find_conn(runner), binmsg.getvalue())
         msg_to_stash(runner, self, message)
+        message_by_another_name("Msg::action sent successfully")
         return True
 
 
@@ -167,7 +199,9 @@ class Wait(PerConnEvent):
         self.delay_s = delay_s
 
     def action(self, runner: 'Runner') -> bool:
+        message("Wait::action begin")
         time.sleep(self.delay_s)
+        message("Wait::action end")
         return True
 
 
@@ -179,6 +213,7 @@ class RawMsg(PerConnEvent):
 
     def action(self, runner: 'Runner') -> bool:
         super().action(runner)
+        message("RawMsg::action begin")
         msg = self.resolve_arg('binmsg', runner, self.message)
         if isinstance(msg, Message):
             buf = io.BytesIO()
@@ -188,6 +223,7 @@ class RawMsg(PerConnEvent):
             binmsg = msg
 
         runner.recv(self, self.find_conn(runner), binmsg)
+        message("RawMsg::action end")
         return True
 
 
@@ -278,14 +314,17 @@ message should not be ignored: by default, it is ignore_gossip_queries.
 
     def action(self, runner: 'Runner') -> bool:
         super().action(runner)
+        message("ExceptMsg::action begin waiting for " + str(self.msgtype))
         conn = self.find_conn(runner)
         while True:
             binmsg = runner.get_output_message(conn, self)
             if binmsg is None:
+                message("ExceptMsg::action raise binmsg is None")
                 raise EventError(self, "Did not receive a message from runner")
 
             for e in conn.must_not_events:
                 if e.matches(binmsg):
+                    message("ExceptMsg::action raise")
                     raise EventError(self, "Got msg banned by {}: {}"
                                      .format(e, binmsg.hex()))
 
@@ -293,6 +332,7 @@ message should not be ignored: by default, it is ignore_gossip_queries.
             try:
                 msg = Message.read(namespace(), io.BytesIO(binmsg))
             except ValueError as ve:
+                message("ExceptMsg::action raise")
                 raise EventError(self, "Runner gave bad msg {}: {}".format(binmsg.hex(), ve))
 
             # Ignore function may tell us to respond.
@@ -302,13 +342,19 @@ message should not be ignored: by default, it is ignore_gossip_queries.
                     binm = io.BytesIO()
                     msg.write(binm)
                     runner.recv(self, conn, binm.getvalue())
+
+                message("ExceptMsg::action ignoring message:\n" + str(msg.to_py()))
+
                 continue
 
             err = self.message_match(runner, msg)
             if err:
+                message("ExceptMsg::action raise")
                 raise EventError(self, "{}: message was {}".format(err, msg.to_str()))
 
+            message("ExceptMsg::action message is a match:\n" + str(msg.to_py()))
             break
+
         return True
 
 
@@ -324,6 +370,7 @@ class Block(Event):
 
     def action(self, runner: 'Runner') -> bool:
         super().action(runner)
+        message("Block::action begin")
         # Oops, did they ask us to produce a block with no predecessor?
         if runner.getblockheight() + 1 < self.blockheight:
             raise SpecFileError(self, "Cannot generate block #{} at height {}".
@@ -336,6 +383,7 @@ class Block(Event):
         # Add new one
         runner.add_blocks(self, [self.resolve_arg('tx', runner, tx) for tx in self.txs], self.number)
         assert runner.getblockheight() == self.blockheight - 1 + self.number
+        message("Block::action end")
         return True
 
 
@@ -349,7 +397,9 @@ class ExpectTx(Event):
 
     def action(self, runner: 'Runner') -> bool:
         super().action(runner)
+        message("ExpectTx::action begin")
         runner.expect_tx(self, self.resolve_arg('txid', runner, self.txid))
+        message("ExpectTx::action end")
         return True
 
 
@@ -363,11 +413,13 @@ class FundChannel(PerConnEvent):
 
     def action(self, runner: 'Runner') -> bool:
         super().action(runner)
+        message("FundChannel::action begin")
         runner.fundchannel(self,
                            self.find_conn(runner),
                            self.resolve_arg('amount', runner, self.amount),
                            self.resolve_arg('feerate', runner, self.feerate),
                            self.resolve_arg('expect_fail', runner, self.expect_fail))
+        message("FundChannel::action end")
         return True
 
 
@@ -388,6 +440,7 @@ class InitRbf(PerConnEvent):
 
     def action(self, runner: 'Runner') -> bool:
         super().action(runner)
+        message("InitRbf::action begin")
         utxo_tx = self.resolve_arg('utxo_tx', runner, self.utxo_tx)
         txid = CTransaction.deserialize(bytes.fromhex(utxo_tx)).GetTxid()[::-1].hex()
 
@@ -399,6 +452,7 @@ class InitRbf(PerConnEvent):
                         self.resolve_arg('utxo_outnum', runner, self.utxo_outnum),
                         self.feerate)
 
+        message("InitRbf::action end")
         return True
 
 
@@ -410,8 +464,10 @@ class Invoice(Event):
 
     def action(self, runner: 'Runner') -> bool:
         super().action(runner)
+        message("Invoice::action begin")
         runner.invoice(self, self.amount,
                        check_hex(self.resolve_arg('preimage', runner, self.preimage), 64))
+        message("Invoice::action end")
         return True
 
 
@@ -423,9 +479,11 @@ class AddHtlc(PerConnEvent):
 
     def action(self, runner: 'Runner') -> bool:
         super().action(runner)
+        message("AddHtlc::action begin")
         runner.addhtlc(self, self.find_conn(runner),
                        self.amount,
                        check_hex(self.resolve_arg('preimage', runner, self.preimage), 64))
+        message("AddHtlc::action end")
         return True
 
 
@@ -435,7 +493,9 @@ class DualFundAccept(Event):
 
     def action(self, runner: 'Runner') -> bool:
         super().action(runner)
+        message("DualFundAccept::action begin")
         runner.accept_add_fund(self)
+        message("DualFundAccept::action end")
         return True
 
 
@@ -445,9 +505,12 @@ class ExpectError(PerConnEvent):
 
     def action(self, runner: 'Runner') -> bool:
         super().action(runner)
+        message("ExceptError::action begin")
         error = runner.check_error(self, self.find_conn(runner))
         if error is None:
+            message("ExceptError::action raise 'no error found'")
             raise EventError(self, "No error found")
+        message("ExceptError::action end")
         return True
 
 
@@ -460,11 +523,14 @@ class CheckEq(Event):
 
     def action(self, runner: 'Runner') -> bool:
         super().action(runner)
+        message("CheckEq::action begin")
         a = self.resolve_arg('a', runner, self.a)
         b = self.resolve_arg('b', runner, self.b)
         # dummy runner generates dummy fields.
         if a != b and not runner._is_dummy():
+            message("CheckEq::action raise")
             raise EventError(self, "{} != {}".format(a, b))
+        message("CheckEq::action end")
         return True
 
 

@@ -55,6 +55,7 @@ __all__ = [
     "AnyOrder",
     "TryAll",
     "CheckEq",
+    'LogMsg',
     "MustNotMsg",
     "SigType",
     "Sig",

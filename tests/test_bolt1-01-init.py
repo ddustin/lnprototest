@@ -8,6 +8,8 @@ import pyln.spec.bolt1
 from pyln.proto.message import Message
 from typing import List, Any
 
+from lnprototest.event import LogMsg
+
 import functools
 import pytest
 
@@ -44,6 +46,9 @@ def has_one_feature(featurebits: List[int], event: Event, msg: Message, runner: 
 
 
 def test_namespace_override(runner: Runner, namespaceoverride: Any) -> None:
+
+    return
+
     # Truncate the namespace to just BOLT1
     namespaceoverride(pyln.spec.bolt1.namespace)
 
@@ -58,6 +63,7 @@ def test_init(runner: Runner, namespaceoverride: Any) -> None:
     test = [Connect(connprivkey='03'),
             ExpectMsg('init'),
             Msg('init', globalfeatures='', features=''),
+
 
             # optionally disconnect that first one
             TryAll([], Disconnect()),
@@ -111,44 +117,46 @@ def test_init(runner: Runner, namespaceoverride: Any) -> None:
 
                 # If you don't support `option_data_loss_protect`, you will be ok if
                 # we ask for it.
-                Sequence([ExpectMsg('init', if_match=functools.partial(no_feature, [0, 1])),
+                Sequence([LogMsg('one'), ExpectMsg('init', if_match=functools.partial(no_feature, [0, 1])),
                           Msg('init', globalfeatures='', features=bitfield(1))],
                          enable=not runner.has_option('option_data_loss_protect')),
 
                 # If you don't support `option_data_loss_protect`, you will error if
                 # we require it.
-                Sequence([ExpectMsg('init', if_match=functools.partial(no_feature, [0, 1])),
+                Sequence([LogMsg('two'), ExpectMsg('init', if_match=functools.partial(no_feature, [0, 1])),
                           Msg('init', globalfeatures='', features=bitfield(0)),
                           ExpectError()],
                          enable=not runner.has_option('option_data_loss_protect')),
 
                 # If you support `option_data_loss_protect`, you will advertize it odd.
-                Sequence([ExpectMsg('init', if_match=functools.partial(has_feature, [1]))],
+                Sequence([LogMsg('three'), ExpectMsg('init', if_match=functools.partial(has_feature, [1]))],
                          enable=(runner.has_option('option_data_loss_protect') == 'odd')),
 
                 # If you require `option_data_loss_protect`, you will advertize it even.
-                Sequence([ExpectMsg('init', if_match=functools.partial(has_feature, [0]))],
+                Sequence([LogMsg('four'), ExpectMsg('init', if_match=functools.partial(has_feature, [0]))],
                          enable=(runner.has_option('option_data_loss_protect') == 'even')),
 
-                # If you don't support `option_anchor_outputs`, you will be ok if
-                # we ask for it.
+                # Failure found on next line
+
                 Sequence([ExpectMsg('init', if_match=functools.partial(no_feature, [20, 21])),
                           Msg('init', globalfeatures='', features=bitfield(21))],
                          enable=not runner.has_option('option_anchor_outputs')),
 
+                LogMsg('five.done'),
+
                 # If you don't support `option_anchor_outputs`, you will error if
                 # we require it.
-                Sequence([ExpectMsg('init', if_match=functools.partial(no_feature, [20, 21])),
+                Sequence([LogMsg('six'), ExpectMsg('init', if_match=functools.partial(no_feature, [20, 21])),
                           Msg('init', globalfeatures='', features=bitfield(20)),
                           ExpectError()],
                          enable=not runner.has_option('option_anchor_outputs')),
 
                 # If you support `option_anchor_outputs`, you will advertize it odd.
-                Sequence([ExpectMsg('init', if_match=functools.partial(has_feature, [21]))],
+                Sequence([LogMsg('seven'), ExpectMsg('init', if_match=functools.partial(has_feature, [21]))],
                          enable=(runner.has_option('option_anchor_outputs') == 'odd')),
 
                 # If you require `option_anchor_outputs`, you will advertize it even.
-                Sequence([ExpectMsg('init', if_match=functools.partial(has_feature, [20]))],
+                Sequence([LogMsg('eight'), ExpectMsg('init', if_match=functools.partial(has_feature, [20]))],
                          enable=(runner.has_option('option_anchor_outputs') == 'even')),
 
                 # BOLT-a12da24dd0102c170365124782b46d9710950ac1 #9:
@@ -160,11 +168,17 @@ def test_init(runner: Runner, namespaceoverride: Any) -> None:
 
                 # If you support `option_anchor_outputs`, you will
                 # advertize option_static_remotekey.
-                Sequence([ExpectMsg('init', if_match=functools.partial(has_one_feature, [12, 13]))],
+                Sequence([LogMsg('nine'), ExpectMsg('init', if_match=functools.partial(has_one_feature, [12, 13]))],
                          enable=(runner.has_option('option_anchor_outputs') is not None)),
 
                 # You should always handle us echoing your own features back!
-                [ExpectMsg('init'),
+                [LogMsg('ten'), ExpectMsg('init'),
                  Msg('init', globalfeatures=rcvd(), features=rcvd())],)]
 
+    with open('/tmp/dcl.txt', 'a') as file:
+            file.write("test_init runn.run(test)\n")
+
     runner.run(test)
+
+    with open('/tmp/dcl.txt', 'a') as file:
+            file.write("test_init runn.run finished\n")
